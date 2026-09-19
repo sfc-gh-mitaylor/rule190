@@ -1,31 +1,9 @@
 import { querySnowflake } from "@/lib/snowflake"
+import { validateReview } from "@/lib/review-validation"
 import { agentFqn, reviewTable } from "@/lib/trace-adapter"
 import type { ReviewDraft } from "@/lib/trace-types"
 
 export const dynamic = "force-dynamic"
-
-const outcomes = new Set(["met_bar", "did_not_meet_bar", "unclear"])
-const criteria = new Set([...outcomes, "not_applicable"])
-
-function validate(review: ReviewDraft): string | null {
-  if (!review || typeof review !== "object") return "Review body is required"
-  if (!(review.source === "production" || review.source === "evaluation")) return "Invalid source"
-  if (!(review.status === "draft" || review.status === "completed")) return "Invalid review status"
-  if (typeof review.traceId !== "string" || typeof review.input !== "string" || typeof review.output !== "string") return "Invalid review payload"
-  if (!outcomes.has(review.outcome)) return "Invalid outcome"
-  if (![review.decisionQuality, review.executionQuality, review.responseQuality].every((value) => criteria.has(value))) {
-    return "Invalid criterion result"
-  }
-  if (review.traceId.length > 256 || (review.recordId?.length ?? 0) > 256) return "Invalid trace identifier"
-  if (review.status === "completed" && review.outcome === "did_not_meet_bar") {
-    if (!review.failureSpanId) return "A consequential failure span is required"
-    if (!review.tag && !review.observation?.trim()) return "Add a failure tag or open observation"
-  }
-  if (review.status === "completed" && review.outcome === "unclear" && !review.uncertaintyReason) {
-    return "An uncertainty reason is required"
-  }
-  return null
-}
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams
@@ -52,7 +30,7 @@ export async function PUT(request: Request) {
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 })
   }
-  const validationError = validate(review)
+  const validationError = validateReview(review)
   if (validationError) return Response.json({ error: validationError }, { status: 400 })
 
   try {
