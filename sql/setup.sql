@@ -1,4 +1,22 @@
-CREATE TABLE IF NOT EXISTS APPS.PUBLIC.AGENT_TRACE_HUMAN_REVIEW (
+-- Idempotent setup for the Agent Trace Review Workbench.
+--
+-- Safe to re-run: every statement is CREATE ... IF NOT EXISTS, so CI can
+-- execute this on every deploy without guarding it. That is the property
+-- that makes automated deployment safe — a deploy step you are afraid to
+-- run twice is a deploy step you will eventually run twice by accident.
+--
+-- Target objects (Eudemo / SFSEEUROPE.EU_DEMO211):
+--   RULE190.APP.AGENT_TRACE_HUMAN_REVIEW  - reviewer output, written by the app
+-- Trace data is read from DEMO_AGENTIC.SUPPORT.SUPPORT_AGENT via
+-- SNOWFLAKE.LOCAL.GET_AI_OBSERVABILITY_EVENTS and is never written to.
+
+CREATE DATABASE IF NOT EXISTS RULE190
+  COMMENT = 'Agent Trace Review Workbench (rule190) application state';
+
+CREATE SCHEMA IF NOT EXISTS RULE190.APP
+  COMMENT = 'Human review records produced by the workbench';
+
+CREATE TABLE IF NOT EXISTS RULE190.APP.AGENT_TRACE_HUMAN_REVIEW (
   REVIEW_ID VARCHAR DEFAULT UUID_STRING(),
   REVIEWER VARCHAR NOT NULL,
   SOURCE VARCHAR NOT NULL,
@@ -20,5 +38,8 @@ CREATE TABLE IF NOT EXISTS APPS.PUBLIC.AGENT_TRACE_HUMAN_REVIEW (
   RUBRIC_VERSION INTEGER DEFAULT 1,
   CREATED_AT TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
   UPDATED_AT TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
+  -- One review per reviewer per trace. The app MERGEs on this key, so two
+  -- reviewers can disagree about the same trace without overwriting each
+  -- other, which is what makes evaluator calibration possible.
   PRIMARY KEY (REVIEWER, SOURCE, AGENT_FQN, TRACE_ID)
 );

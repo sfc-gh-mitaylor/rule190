@@ -1,9 +1,9 @@
 version: 2
 
 name: AGENT_TRACE_REVIEW_WORKBENCH
-database: APPS
-schema: PUBLIC
-query_warehouse: AGAVIC_WH
+database: RULE190
+schema: APP
+query_warehouse: COMPUTE_WH
 
 ignore:
   - node_modules
