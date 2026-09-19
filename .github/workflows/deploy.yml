@@ -87,30 +87,55 @@ jobs:
       - name: Deploy app
         run: snow app deploy -x
 
-      - name: Show deployed service status
-        run: snow sql -q "SHOW APPLICATION SERVICES LIKE '${{ env.APP_NAME }}' IN SCHEMA RULE190.APP" -x
-
-      - name: Check health endpoint
-        # A deploy that reports success but serves 500s is not a deploy.
-        # This asserts the app actually answers, and fails the job if not.
+      - name: Check deployment health
+        # Two assertions, because neither alone is sufficient.
+        #
+        # 1. Service state from Snowflake: status RUNNING with at least one
+        #    live instance. This is the authoritative health signal available
+        #    to CI.
+        # 2. Endpoint reachability. Note we do NOT assert HTTP 200: the app
+        #    endpoint sits behind Snowflake SSO, so an unauthenticated request
+        #    from a runner is *correctly* answered with a 302 redirect to
+        #    login. Asserting 200 here would be asserting that authentication
+        #    is broken. We assert the endpoint is serving and not erroring:
+        #    2xx/3xx/401/403 pass, 5xx or no-response fail.
         run: |
           set -euo pipefail
-          URL=$(snow app open --print-only --watch -x 2>/dev/null | tr -d '[:space:]' || true)
-          if [ -z "$URL" ]; then
-            echo "Could not resolve the app URL from 'snow app open --print-only'."
-            echo "Deploy itself succeeded; treating an unverifiable endpoint as a failure."
+
+          echo "--- service state ---"
+          snow sql -q "SHOW APPLICATION SERVICES LIKE '${{ env.APP_NAME }}' IN SCHEMA RULE190.APP" --format json -x > /tmp/svc.json
+          cat /tmp/svc.json
+          STATUS=$(jq -r '.[0].status // "MISSING"' /tmp/svc.json)
+          INSTANCES=$(jq -r '.[0].current_instances // 0' /tmp/svc.json)
+          URL=$(jq -r '.[0].url // ""' /tmp/svc.json)
+          echo "status=$STATUS instances=$INSTANCES url=$URL"
+
+          if [ "$STATUS" != "RUNNING" ]; then
+            echo "FAIL: application service status is '$STATUS', expected RUNNING."
             exit 1
           fi
-          echo "App URL: $URL"
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 20 "${URL%/}/api/health" || echo 000)
+          if [ "${INSTANCES:-0}" -lt 1 ]; then
+            echo "FAIL: application service has no running instances."
+            exit 1
+          fi
+          if [ -z "$URL" ]; then
+            echo "FAIL: application service reports no endpoint URL."
+            exit 1
+          fi
+
+          echo "--- endpoint reachability ---"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            CODE=$(curl -s -o /tmp/health.body -w '%{http_code}' --max-time 20 "https://${URL%/}/api/health" || echo 000)
             echo "attempt $attempt: HTTP $CODE"
-            if [ "$CODE" = "200" ]; then
-              cat /tmp/health.json
-              exit 0
-            fi
+            case "$CODE" in
+              2*|3*|401|403)
+                echo "PASS: endpoint is serving (HTTP $CODE)."
+                head -c 400 /tmp/health.body 2>/dev/null || true
+                exit 0
+                ;;
+            esac
             sleep 15
           done
-          echo "Health endpoint did not return 200 within the retry budget."
-          cat /tmp/health.json 2>/dev/null || true
+          echo "FAIL: endpoint never returned a healthy status code."
+          head -c 400 /tmp/health.body 2>/dev/null || true
           exit 1
