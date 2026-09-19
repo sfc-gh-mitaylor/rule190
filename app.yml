@@ -5,6 +5,13 @@ database: RULE190
 schema: APP
 query_warehouse: COMPUTE_WH
 
+# The remote build job defaults to the deploying role's PERSONAL database
+# (USER$<login_name>). A TYPE = SERVICE user has no personal database, so
+# without this the CI deploy fails in the build phase with a database error.
+# Pinning it to the deploy destination is what makes the build runnable by a
+# service identity rather than only by a human.
+build_job_location: RULE190.APP
+
 ignore:
   - node_modules
   - .env*

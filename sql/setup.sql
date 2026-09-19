@@ -5,16 +5,18 @@
 -- that makes automated deployment safe — a deploy step you are afraid to
 -- run twice is a deploy step you will eventually run twice by accident.
 --
+-- This file contains ONLY what the CI deploy role is allowed to do. The
+-- database, schema, role, service user and network policy are created once
+-- by an administrator (see docs/deployment.md) and deliberately NOT here:
+-- if CI could create databases, CI would need CREATE DATABASE on the
+-- account, and a compromised workflow could create objects anywhere.
+-- Privileged one-time bootstrap and unprivileged repeatable deploy are
+-- different jobs and should need different authority.
+--
 -- Target objects (Eudemo / SFSEEUROPE.EU_DEMO211):
 --   RULE190.APP.AGENT_TRACE_HUMAN_REVIEW  - reviewer output, written by the app
 -- Trace data is read from DEMO_AGENTIC.SUPPORT.SUPPORT_AGENT via
 -- SNOWFLAKE.LOCAL.GET_AI_OBSERVABILITY_EVENTS and is never written to.
-
-CREATE DATABASE IF NOT EXISTS RULE190
-  COMMENT = 'Agent Trace Review Workbench (rule190) application state';
-
-CREATE SCHEMA IF NOT EXISTS RULE190.APP
-  COMMENT = 'Human review records produced by the workbench';
 
 CREATE TABLE IF NOT EXISTS RULE190.APP.AGENT_TRACE_HUMAN_REVIEW (
   REVIEW_ID VARCHAR DEFAULT UUID_STRING(),

@@ -1,0 +1,116 @@
+# Deployment: the only path from this repo into Snowflake.
+#
+# Differences from ci.yml, all deliberate:
+#   - Manual trigger only. No push or PR can deploy. Shipping is a decision,
+#     not a side effect of merging.
+#   - Runs in the `dogfood` GitHub environment, which requires your approval
+#     before the job starts.
+#   - Authenticates with a short-lived GitHub OIDC token. There is no
+#     password, PAT, private key or config.toml anywhere in this repo or in
+#     GitHub secrets. The Snowflake user SVC_GITHUB_ACTIONS_RULE190 has no
+#     credential that can be stolen, because it has no credential.
+#   - Uses role R190_DEPLOY, scoped to RULE190.APP. Not ACCOUNTADMIN.
+#
+# The OIDC trust is bound to subject
+#   repo:sfc-gh-mitaylor/rule190:environment:dogfood
+# which is why the `environment:` line below is load-bearing security, not
+# just bookkeeping: a workflow in another repo, on another branch, or in a
+# fork produces a different subject and Snowflake rejects it.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # mint the OIDC token — the whole point
+  contents: read    # actions/checkout; without this the clone fails
+
+# Two deploys of the same app at once would race to CREATE OR ALTER the same
+# Application Service. Queue them instead, and never cancel a deploy
+# mid-flight — a half-applied deploy is worse than a late one.
+concurrency:
+  group: deploy-dogfood
+  cancel-in-progress: false
+
+env:
+  # Account identifier is not a secret. Hardcoding it keeps the workflow
+  # readable and avoids pretending that hiding it buys security.
+  SNOWFLAKE_ACCOUNT: SFSEEUROPE-EU_DEMO211
+  APP_NAME: AGENT_TRACE_REVIEW_WORKBENCH
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: dogfood
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify before deploying
+        # Same gate as CI. Deploying something that has not passed verify
+        # would make the CI signal meaningless.
+        run: npm run verify
+
+      - name: Set up Snowflake CLI with OIDC
+        uses: snowflakedb/snowflake-actions@v2
+        with:
+          use-oidc: true
+
+      - name: Test connection
+        # Fail here, loudly and cheaply, rather than part-way through a
+        # deploy. This is the step that proves OIDC and the network policy
+        # are both working.
+        run: |
+          snow connection test -x
+          snow sql -q "SELECT CURRENT_USER() AS USER, CURRENT_ROLE() AS ROLE, CURRENT_ACCOUNT() AS ACCOUNT" -x
+
+      - name: Apply setup SQL
+        # Idempotent; runs on every deploy by design.
+        run: snow sql -f sql/setup.sql -x
+
+      - name: Validate app manifest
+        run: snow app validate -x
+
+      - name: Deploy app
+        run: snow app deploy -x
+
+      - name: Show deployed service status
+        run: snow sql -q "SHOW APPLICATION SERVICES LIKE '${{ env.APP_NAME }}' IN SCHEMA RULE190.APP" -x
+
+      - name: Check health endpoint
+        # A deploy that reports success but serves 500s is not a deploy.
+        # This asserts the app actually answers, and fails the job if not.
+        run: |
+          set -euo pipefail
+          URL=$(snow app open --print-only --watch -x 2>/dev/null | tr -d '[:space:]' || true)
+          if [ -z "$URL" ]; then
+            echo "Could not resolve the app URL from 'snow app open --print-only'."
+            echo "Deploy itself succeeded; treating an unverifiable endpoint as a failure."
+            exit 1
+          fi
+          echo "App URL: $URL"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 20 "${URL%/}/api/health" || echo 000)
+            echo "attempt $attempt: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              cat /tmp/health.json
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Health endpoint did not return 200 within the retry budget."
+          cat /tmp/health.json 2>/dev/null || true
+          exit 1
