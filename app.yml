@@ -1,0 +1,28 @@
+version: 2
+
+name: AGENT_TRACE_REVIEW_WORKBENCH
+database: APPS
+schema: PUBLIC
+query_warehouse: AGAVIC_WH
+
+ignore:
+  - node_modules
+  - .env*
+  - __pycache__
+  - "*.pyc"
+  - .next
+  - .git
+  - snowflake.log
+
+profile:
+  label: "Agent Trace Review Workbench"
+  description: "Human review, failure discovery, and evaluator calibration for Cortex Agent traces"
+  icon: icon.svg
+
+install:
+  commands:
+    - ["npm", "ci", "--include=dev"]
+
+run:
+  command: ["node", ".next/standalone/server.js"]
+  executeAsCaller: true
