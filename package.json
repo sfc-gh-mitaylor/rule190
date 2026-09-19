@@ -27,7 +27,7 @@
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.6.1",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@types/snowflake-sdk": "^1.6.24",
