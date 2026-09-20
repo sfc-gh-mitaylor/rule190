@@ -62,7 +62,6 @@ Squashing "import and fix" into one commit hides what was wrong, which is the
 only part worth reading later.
 
 ## 6. PR CI gets no credentials
-
 Split the pipelines:
 
 - **`ci.yml`** — PR and push. Correctness only. No Snowflake, no secrets.
@@ -133,3 +132,65 @@ lives with the code it describes; the other location holds a pointer.
 `rule190` was extracted from `latinum` because they are different things: an
 analysis workspace and a deployable app. A repo that is both cannot have a
 meaningful `verify`, because there is no single definition of working.
+
+## 13. Runtime leads, types follow
+
+`.nvmrc` pins the Node major. `@types/node` must match it, never lead it.
+Type definitions ahead of the runtime let code typecheck against APIs that do
+not exist when it runs — a type checker that passes on code the runtime
+rejects is worse than none.
+
+Dependabot will propose `@types/node` majors ahead of your runtime. Close
+them until `.nvmrc` moves first.
+
+Enforcing a Node pin takes three pieces, because the obvious two don't work:
+
+| Mechanism | Effect |
+|---|---|
+| `engines` in `package.json` | advisory only |
+| `engine-strict=true` in `.npmrc` | applies to *dependencies'* engines, **not** the root project's own range |
+| `scripts/check-node.mjs` on `preinstall` | the part that actually fails |
+
+Verified: `npm ci` on the wrong major with `engines` + `engine-strict` exits 0
+and prints nothing. The guard reads `.nvmrc`, so there is still one source of
+truth shared with CI.
+
+## 14. Know which controls you actually have
+
+We wanted a ruleset on `main` requiring `verify` before merge. On this account
+it is unavailable: **rulesets, required status checks, environment required
+reviewers and environment wait timers are all plan-gated for private
+repositories.** The API is blunt about it — 403 *"Upgrade to GitHub Pro or
+make this repository public"*.
+
+What exists instead:
+
+- `.githooks/pre-push` runs `verify` before a push leaves the machine.
+  Enable with `npm run setup-hooks`.
+- Deployment is `workflow_dispatch`-only, so nothing ships automatically.
+- The OIDC subject pins the `dogfood` environment, so the deploy identity
+  cannot be used from anywhere else.
+
+The hook is **not** an enforcement boundary and should not be described as
+one: it runs on your machine, `git push --no-verify` skips it, and it does not
+apply to anyone else or to the web UI. It catches the realistic failure —
+you, in a hurry — and nothing more.
+
+**Open decision:** proper server-side enforcement needs either GitHub Pro or
+making this repo public. Until one of those happens, `main` is protected by
+habit and a hook, not by a rule. Say so out loud rather than assuming the
+green checkmark means something it doesn't.
+
+## 15. Grant access with a role, not by adding people to admin
+
+The app runs with **caller's rights**, so each reviewer queries Snowflake as
+themselves. That is the right design — reviews are attributable and the app
+cannot read more than the person using it — but it means access is a grant
+problem, not an app problem.
+
+`R190_REVIEWER` is the answer: read the agent's traces, read/write the review
+table, reach the app endpoint, use the warehouse. Nine grants, no admin.
+
+Verified rather than assumed: activating the role and calling
+`GET_AI_OBSERVABILITY_EVENTS` returns all 938 events, and the review table is
+readable. An access role you have not tested under is a guess.

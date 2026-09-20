@@ -130,6 +130,32 @@ What the check asserts now:
 2. The endpoint is serving rather than erroring — `2xx`, `3xx`, `401`, `403`
    pass; `5xx` or no response fails.
 
+## Reviewer access
+
+The app runs with caller's rights: every reviewer queries Snowflake as
+themselves, so reviews are attributable and the app can never read more than
+the person using it. Access is therefore granted with a role.
+
+```sql
+CREATE ROLE IF NOT EXISTS R190_REVIEWER;
+GRANT USAGE ON DATABASE DEMO_AGENTIC          TO ROLE R190_REVIEWER;
+GRANT USAGE ON SCHEMA DEMO_AGENTIC.SUPPORT    TO ROLE R190_REVIEWER;
+GRANT USAGE ON WAREHOUSE COMPUTE_WH           TO ROLE R190_REVIEWER;
+GRANT USAGE ON DATABASE RULE190               TO ROLE R190_REVIEWER;
+GRANT USAGE ON SCHEMA RULE190.APP             TO ROLE R190_REVIEWER;
+GRANT SELECT, INSERT, UPDATE ON TABLE RULE190.APP.AGENT_TRACE_HUMAN_REVIEW
+                                              TO ROLE R190_REVIEWER;
+GRANT USAGE ON APPLICATION SERVICE RULE190.APP.AGENT_TRACE_REVIEW_WORKBENCH
+                                              TO ROLE R190_REVIEWER;
+
+GRANT ROLE R190_REVIEWER TO USER <reviewer>;
+```
+
+Verified by activating the role and reading traces — 938 events returned, and
+the review table readable. `SELECT`/`INSERT`/`UPDATE` but no `DELETE`: the app
+`MERGE`s on `(REVIEWER, SOURCE, AGENT_FQN, TRACE_ID)`, so a reviewer revises
+their own row and cannot remove anyone's judgement, including their own.
+
 ## Operating it
 
 ```bash
