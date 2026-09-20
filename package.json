@@ -12,6 +12,7 @@
     "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "setup-hooks": "git config core.hooksPath .githooks && echo 'hooks enabled: .githooks (pre-push runs npm run verify)'",
     "verify": "node scripts/check-node.mjs && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

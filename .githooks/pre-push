@@ -1,0 +1,33 @@
+#!/bin/sh
+# pre-push: run the same gate CI runs, before anything leaves your machine.
+#
+# Why this exists: GitHub rulesets and required status checks are unavailable
+# on this plan for private repositories (the API returns 403 "Upgrade to
+# GitHub Pro or make this repository public"). So there is no server-side
+# rule stopping a red commit from reaching main.
+#
+# This is a weaker control than a ruleset, and it is important to know why:
+#   - it runs on your machine, so it is only as trustworthy as your machine
+#   - `git push --no-verify` skips it entirely
+#   - it does not apply to anyone else, or to the GitHub web UI
+#
+# It is still worth having: it catches the realistic failure — you, in a
+# hurry, pushing something that does not build — without pretending to be
+# an enforcement boundary.
+#
+# Enable with: npm run setup-hooks   (sets core.hooksPath to .githooks)
+
+set -e
+
+echo "pre-push: running npm run verify (the same gate CI runs)..."
+
+if ! npm run verify; then
+  echo ""
+  echo "pre-push: verify FAILED — push aborted."
+  echo ""
+  echo "  Fix it, or bypass deliberately with:  git push --no-verify"
+  echo ""
+  exit 1
+fi
+
+echo "pre-push: verify passed."
