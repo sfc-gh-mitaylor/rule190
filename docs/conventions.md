@@ -157,29 +157,39 @@ truth shared with CI.
 
 ## 14. Know which controls you actually have
 
-We wanted a ruleset on `main` requiring `verify` before merge. On this account
-it is unavailable: **rulesets, required status checks, environment required
-reviewers and environment wait timers are all plan-gated for private
-repositories.** The API is blunt about it — 403 *"Upgrade to GitHub Pro or
-make this repository public"*.
+`main` is protected by a **ruleset** (`main-requires-verify`):
 
-What exists instead:
+| Rule | Effect |
+|---|---|
+| `required_status_checks` → `verify` | the CI job must pass before merge |
+| `strict_required_status_checks_policy` | the branch must be up to date with `main` first |
+| `pull_request` | no direct pushes to `main` — changes arrive via PR |
+| `deletion`, `non_fast_forward` | `main` cannot be deleted or force-pushed |
+
+The `dogfood` environment requires **explicit approval from a named reviewer**
+before a deploy job starts, and is restricted to protected branches.
+
+**This was not free.** All of it — rulesets, required status checks,
+environment required reviewers, wait timers — is plan-gated for *private*
+repositories on this account; the API returned `403 Upgrade to GitHub Pro or
+make this repository public` and `422 billing plan`. The repo was made public
+to get them. That is a real trade: the account identifier, service user name,
+role names, agent FQN and OIDC subject are now visible to anyone.
+
+That trade is only safe because of convention 7. There is no credential to
+find. The OIDC subject is public information that cannot be forged, because
+GitHub signs the token and the subject is derived from the repo and
+environment, not asserted by the caller. Audit the history before making any
+repo public — in this case, the only credential-shaped strings were synthetic
+TOML fixtures in a test (`mypass`, `alpha-pass`).
+
+Belt and braces, since server-side rules only protect the server:
 
 - `.githooks/pre-push` runs `verify` before a push leaves the machine.
-  Enable with `npm run setup-hooks`.
-- Deployment is `workflow_dispatch`-only, so nothing ships automatically.
-- The OIDC subject pins the `dogfood` environment, so the deploy identity
-  cannot be used from anywhere else.
-
-The hook is **not** an enforcement boundary and should not be described as
-one: it runs on your machine, `git push --no-verify` skips it, and it does not
-apply to anyone else or to the web UI. It catches the realistic failure —
-you, in a hurry — and nothing more.
-
-**Open decision:** proper server-side enforcement needs either GitHub Pro or
-making this repo public. Until one of those happens, `main` is protected by
-habit and a hook, not by a rule. Say so out loud rather than assuming the
-green checkmark means something it doesn't.
+  Enable with `npm run setup-hooks`. Catches the failure locally, in seconds,
+  instead of after a round trip through CI.
+- It is **not** an enforcement boundary — `git push --no-verify` skips it.
+  The ruleset is the boundary. The hook is a convenience.
 
 ## 15. Grant access with a role, not by adding people to admin
 
