@@ -1,12 +1,15 @@
 #!/bin/sh
 # pre-push: run the same gate CI runs, before anything leaves your machine.
 #
-# Why this exists: GitHub rulesets and required status checks are unavailable
-# on this plan for private repositories (the API returns 403 "Upgrade to
-# GitHub Pro or make this repository public"). So there is no server-side
-# rule stopping a red commit from reaching main.
+# Why this exists: it shortens the feedback loop. You find out that the build
+# is red in seconds, locally, instead of minutes later in a CI log.
 #
-# This is a weaker control than a ruleset, and it is important to know why:
+# It is NOT the enforcement boundary. `main` is protected server-side by the
+# `main-requires-verify` ruleset, which requires two status checks — `verify`
+# (CI) and `review-attested` (a human read the diff) — and has no bypass
+# actors. That is the control that actually holds.
+#
+# This hook is the weaker, local half, and it is important to know why:
 #   - it runs on your machine, so it is only as trustworthy as your machine
 #   - `git push --no-verify` skips it entirely
 #   - it does not apply to anyone else, or to the GitHub web UI

@@ -1,0 +1,60 @@
+# Ship configuration: how a change gets from a working tree onto main.
+#
+# Read by the `ship` skill. The risk lanes below decide how hard the human read
+# is, so a wrong glob here silently downgrades a dangerous change. Treat this
+# file as red-lane itself.
+
+critic:
+  # MUST be a different vendor from the authoring model (Claude). The whole
+  # point is that the model reviewing the diff has different training data and
+  # different failure modes from the model that wrote it — a same-model pass
+  # rationalises its own choices.
+  #
+  # Bare `gpt-5.4` is not a valid identifier and fails with an authorization
+  # error. The `openai-` prefix is required.
+  model: openai-gpt-5.4
+
+verify:
+  # Identical to what CI runs. `npm run verify` chains check-node, typecheck,
+  # test, and build — the same four steps as the `verify` job in
+  # .github/workflows/ci.yml. One command, one source of truth: if this drifts
+  # from CI, local green stops predicting remote green.
+  - npm run verify
+
+lanes:
+  # Red: a human reads the rendered diff in the browser before attesting.
+  # These paths can break the security properties the app claims, and no test
+  # suite reliably catches that.
+  red:
+    - app.yml                     # executeAsCaller — the caller's-rights switch
+    - sql/**                      # setup.sql: grants, table, app identity
+    - lib/snowflake.ts            # connection handling and the caller token
+    - lib/review-validation.ts    # input validation before persistence
+    - app/api/**                  # every trust boundary in the app
+    - .github/**                  # CI, deploy, and dependabot: the gates and
+                                  # how dependencies enter the repo
+    - .githooks/**
+    - .ship.yml                   # this file decides the lanes
+    - package-lock.json           # dependency provenance
+    - package.json                # defines `verify` — the gate itself
+    - next.config.mjs             # build output and server packaging for SPCS
+    - .nvmrc                      # runtime pin; CI reads the same file
+    - .npmrc                      # registry and install behaviour
+    - tsconfig.json               # strictness is a correctness gate
+    - vitest.config.ts            # test discovery: silently narrowing this
+                                  # disables tests without deleting them
+    - scripts/**                  # check-node.mjs runs as a preinstall hook
+
+  # Green: docs, tests, and vendored UI primitives. Read inline, fast.
+  # Note tests are green to *change* but the critic still reads them with
+  # suspicion — a weakened test is a weakened gate, which is red by rule.
+  green:
+    - "**/*.md"
+    - docs/**
+    - __tests__/**
+    - components/ui/**            # shadcn primitives
+    - public/**
+    - icon.svg
+
+  # Everything unmatched is yellow: components, lib helpers, app pages,
+  # config. Read the inline diff properly.

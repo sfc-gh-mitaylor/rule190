@@ -162,9 +162,30 @@ truth shared with CI.
 | Rule | Effect |
 |---|---|
 | `required_status_checks` → `verify` | the CI job must pass before merge |
+| `required_status_checks` → `review-attested` | a human confirmed they read the diff (see below) |
 | `strict_required_status_checks_policy` | the branch must be up to date with `main` first |
 | `pull_request` | no direct pushes to `main` — changes arrive via PR |
 | `deletion`, `non_fast_forward` | `main` cannot be deleted or force-pushed |
+
+**Be precise about what `review-attested` is.** It is a **process control, not a
+security boundary.** The sole maintainer posts it with their own token after
+confirming they read the diff, so it provides no separation of duties, no
+independent approval, and no defence against the maintainer themselves. An
+adversarial reviewer called it "mostly security theatre" as a security control,
+and on that framing it is right.
+
+What it does buy, which is not nothing:
+
+- Merge is *blocked by default*. Landing a change requires a deliberate act,
+  not the absence of one.
+- The act is **recorded** — a dated status against a specific SHA, visible in
+  `gh api repos/:owner/:repo/commits/<sha>/statuses`. "I did not read it" and
+  "I read it" are now distinguishable after the fact.
+- It creates the slot where a second reviewer drops in unchanged if anyone ever
+  joins. At that point it becomes a real approval gate.
+
+Do not describe it to anyone as tamper-proof, and do not list it alongside
+`verify` as though the two are equivalent. CI is evidence. This is a signature.
 
 The `dogfood` environment requires **explicit approval from a named reviewer**
 before a deploy job starts, and is restricted to protected branches.
