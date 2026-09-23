@@ -22,9 +22,21 @@ verify:
   - npm run verify
 
 lanes:
-  # Red: a human reads the rendered diff in the browser before attesting.
-  # These paths can break the security properties the app claims, and no test
-  # suite reliably catches that.
+  # PRECEDENCE: the MOST SPECIFIC matching glob wins. On an exact tie, the
+  # highest lane wins (red > yellow > green).
+  #
+  # Specificity, not lane order, is what resolves overlaps — and it gives the
+  # intended answer in both directions:
+  #   lib/snowflake.ts   beats  lib/**          -> red    (stricter)
+  #   components/ui/**   beats  components/**   -> green  (looser)
+  #
+  # A pure red-beats-yellow rule would make green unreachable for
+  # components/ui/**, because components/** also matches it.
+  default: red
+
+  # Red: every hunk, read in the CoCo diff view (Ctrl+Shift+G), before the
+  # commit. These paths can break the security properties the app claims, and
+  # no test suite reliably catches that.
   red:
     - app.yml                     # executeAsCaller — the caller's-rights switch
     - sql/**                      # setup.sql: grants, table, app identity
@@ -35,6 +47,8 @@ lanes:
                                   # how dependencies enter the repo
     - .githooks/**
     - .ship.yml                   # this file decides the lanes
+    - .gitignore                  # weakening this is how secrets get committed
+    - .env*                       # should never be committed at all
     - package-lock.json           # dependency provenance
     - package.json                # defines `verify` — the gate itself
     - next.config.mjs             # build output and server packaging for SPCS
@@ -45,16 +59,32 @@ lanes:
                                   # disables tests without deleting them
     - scripts/**                  # check-node.mjs runs as a preinstall hook
 
-  # Green: docs, tests, and vendored UI primitives. Read inline, fast.
-  # Note tests are green to *change* but the critic still reads them with
-  # suspicion — a weakened test is a weakened gate, which is red by rule.
-  green:
+  # NOT listed, and therefore red by default: __tests__/**. That is deliberate.
+  # Tests are the gate — the critic assumes the same agent wrote the code and
+  # the tests, together, to pass — so a weakened test is a weakened gate and
+  # earns a strict read. If that proves too heavy in practice, move it here
+  # explicitly rather than relying on the default.
+
+  # Yellow: read the whole diff properly in the editor, but hunk-by-hunk
+  # scrutiny is not required. Docs sit here, not in green: PR #8 was a case of
+  # the README and a hook comment actively misstating this repo's security
+  # controls, which is a real harm and not a typo.
+  yellow:
+    - "*.md"                      # root-level docs: README.md and friends.
+                                  # `**/*.md` alone does NOT match these in
+                                  # most glob implementations.
     - "**/*.md"
     - docs/**
-    - __tests__/**
+    - components/**               # components/ui/** is more specific -> green
+    - lib/**                      # the two files above are more specific -> red
+    - app/**                      # app/api/** is more specific -> red
+
+  # Green: a glance. Vendored primitives and static assets only — things where
+  # being wrong is visible immediately and costs nothing.
+  green:
     - components/ui/**            # shadcn primitives
     - public/**
     - icon.svg
 
-  # Everything unmatched is yellow: components, lib helpers, app pages,
-  # config. Read the inline diff properly.
+  # When a change touches several files in different lanes, the highest lane
+  # reached by any file applies to the whole review.
